@@ -59,13 +59,13 @@ def get_feature(face_image):
     return images_emb
 
 
-def add_persons(backup_dir, add_persons_dir, faces_save_dir, features_path):
+def add_person_from_video(video_path, backup_dir, faces_save_dir, features_path):
     """
-    Add a new person to the face recognition database.
+    Add a new person to the face recognition database from a video file.
 
     Args:
+        video_path (str): Path to the video file.
         backup_dir (str): Directory to save backup data.
-        add_persons_dir (str): Directory containing images of the new person.
         faces_save_dir (str): Directory to save the extracted faces.
         features_path (str): Path to save face features.
     """
@@ -73,44 +73,55 @@ def add_persons(backup_dir, add_persons_dir, faces_save_dir, features_path):
     images_name = []
     images_emb = []
 
-    # Read the folder with images of the new person, extract faces, and save them
-    for name_person in os.listdir(add_persons_dir):
-        person_image_path = os.path.join(add_persons_dir, name_person)
+    # Capture video
+    print(f"Attempting to open video file: {video_path}")
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        print(f"Error: Unable to open video file {video_path}")
+        return
 
-        # Create a directory to save the faces of the person
-        person_face_path = os.path.join(faces_save_dir, name_person)
-        os.makedirs(person_face_path, exist_ok=True)
+    # Read frames from the video
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-        for image_name in os.listdir(person_image_path):
-            if image_name.endswith(("png", "jpg", "jpeg")):
-                input_image = cv2.imread(os.path.join(person_image_path, image_name))
+        # Resize the frame for better detection
+        scale_factor = 2.0
+        frame_resized = cv2.resize(frame, (0, 0), fx=scale_factor, fy=scale_factor)
 
-                # Detect faces and landmarks using the face detector
-                bboxes, landmarks = detector.detect(image=input_image)
+        # Detect faces and landmarks using the face detector
+        bboxes, landmarks = detector.detect(image=frame_resized)
 
-                # Extract faces
-                for i in range(len(bboxes)):
-                    # Get the number of files in the person's path
-                    number_files = len(os.listdir(person_face_path))
+        # Extract faces
+        for i in range(len(bboxes)):
+            # Get the location of the face
+            x1, y1, x2, y2, score = bboxes[i]
 
-                    # Get the location of the face
-                    x1, y1, x2, y2, score = bboxes[i]
+            # Convert coordinates back to the original scale
+            x1 = int(x1 / scale_factor)
+            y1 = int(y1 / scale_factor)
+            x2 = int(x2 / scale_factor)
+            y2 = int(y2 / scale_factor)
 
-                    # Extract the face from the image
-                    face_image = input_image[y1:y2, x1:x2]
+            # Extract the face from the image
+            face_image = frame[y1:y2, x1:x2]
 
-                    # Path to save the face
-                    path_save_face = os.path.join(person_face_path, f"{number_files}.jpg")
+            # Save the face to the database
+            person_face_path = os.path.join(faces_save_dir, "video_faces")
+            os.makedirs(person_face_path, exist_ok=True)
+            number_files = len(os.listdir(person_face_path))
+            path_save_face = os.path.join(person_face_path, f"{number_files}.jpg")
+            cv2.imwrite(path_save_face, face_image)
 
-                    # Save the face to the database
-                    cv2.imwrite(path_save_face, face_image)
+            # Extract features from the face
+            images_emb.append(get_feature(face_image=face_image))
+            images_name.append("video_person")
 
-                    # Extract features from the face
-                    images_emb.append(get_feature(face_image=face_image))
-                    images_name.append(name_person)
+    cap.release()
 
     # Check if no new person is found
-    if images_emb == [] and images_name == []:
+    if not images_emb and not images_name:
         print("No new person found!")
         return None
 
@@ -134,28 +145,26 @@ def add_persons(backup_dir, add_persons_dir, faces_save_dir, features_path):
     # Save the combined features
     np.savez_compressed(features_path, images_name=images_name, images_emb=images_emb)
 
-    # Move the data of the new person to the backup data directory
-    for sub_dir in os.listdir(add_persons_dir):
-        dir_to_move = os.path.join(add_persons_dir, sub_dir)
-        shutil.move(dir_to_move, backup_dir, copy_function=shutil.copytree)
+    # Move the video to the backup data directory
+    shutil.move(video_path, backup_dir)
 
-    print("Successfully added new person!")
+    print("Successfully added new person from video!")
 
 
 if __name__ == "__main__":
     # Parse command line arguments
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--video-path",
+        type=str,
+        required=True,
+        help="Path to the video file.",
+    )
+    parser.add_argument(
         "--backup-dir",
         type=str,
         default="./datasets/backup",
         help="Directory to save person data.",
-    )
-    parser.add_argument(
-        "--add-persons-dir",
-        type=str,
-        default="./datasets/new_persons",
-        help="Directory to add new persons.",
     )
     parser.add_argument(
         "--faces-save-dir",
@@ -172,4 +181,9 @@ if __name__ == "__main__":
     opt = parser.parse_args()
 
     # Run the main function
-    add_persons(**vars(opt))
+    add_person_from_video(
+        video_path=opt.video_path,
+        backup_dir=opt.backup_dir,
+        faces_save_dir=opt.faces_save_dir,
+        features_path=opt.features_path,
+    )

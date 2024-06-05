@@ -302,3 +302,48 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+def tracking(detector, args):
+    """
+    Face tracking in a separate thread.
+
+    Args:
+        detector: The face detector.
+        args (dict): Tracking configuration parameters.
+    """
+    # Initialize variables for measuring frame rate
+    start_time = time.time_ns()
+    frame_count = 0
+    fps = -1
+
+    # Initialize a tracker and a timer
+    tracker = BYTETracker(args=args, frame_rate=30)
+    frame_id = 0
+
+    # Change from camera to video file
+    cap = cv2.VideoCapture("camera2.mp4")
+
+    while True:
+        ret, img = cap.read()
+        if not ret:
+            print("End of video stream")
+            break
+
+        tracking_image = process_tracking(img, detector, tracker, args, frame_id, fps)
+
+        # Calculate and display the frame rate
+        frame_count += 1
+        if frame_count >= 30:
+            fps = 1e9 * frame_count / (time.time_ns() - start_time)
+            frame_count = 0
+            start_time = time.time_ns()
+
+        cv2.imshow("Face Recognition", tracking_image)
+
+        # Check for user exit input
+        ch = cv2.waitKey(1)
+        if ch == 27 or ch == ord("q") or ch == ord("Q"):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
